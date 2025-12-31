@@ -122,7 +122,7 @@ def rodar_crawler():
         # Isso é CRUCIAL para o Google não te bloquear imediatamente.
         # Se colocar True, o Google detecta mais fácil que é um robô.
         browser = p.chromium.launch(headless=False, args=["--lang=pt-BR"])
-        
+                
         # Cria um contexto com User Agent comum para parecer um PC normal
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
