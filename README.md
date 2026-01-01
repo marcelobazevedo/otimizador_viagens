@@ -1,5 +1,7 @@
 Execute os comandos abaixo no terminal:
 
-pip install playwright
+conda create --name otomizador_viagens
 
-playwright install chromium
+conda activate otimizador_viagens
+
+pip install -r requirements.txt

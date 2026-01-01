@@ -4,29 +4,32 @@ import random
 import re
 from playwright.sync_api import sync_playwright
 
-# --- CONFIGURAÇÕES DE BUSCA ---
-# Defina suas rotas e datas aqui
+# --- CONFIGURAÇÕES ---
 ROTAS = [
-    {'origem': 'GYN', 'destino': 'ATL', 'data': '2025-05-15'},
-    {'origem': 'ATL', 'destino': 'BSB', 'data': '2025-05-20'},
-    # Adicione quantas quiser
+    {'origem': 'GYN', 'destino': 'ATL', 'ida': '2026-06-15', 'volta': '2026-06-22'},
+    {'origem': 'BSB', 'destino': 'ATL', 'ida': '2026-06-10', 'volta': '2026-06-20'},
+    {'origem': 'GYN', 'destino': 'CHC', 'ida': '2026-06-15', 'volta': '2026-06-22'},
+    {'origem': 'BSB', 'destino': 'CHC', 'ida': '2026-06-10', 'volta': '2026-06-20'},
+    {'origem': 'GYN', 'destino': 'MSY', 'ida': '2026-06-15', 'volta': '2026-06-22'},
+    {'origem': 'BSB', 'destino': 'MSY', 'ida': '2026-06-10', 'volta': '2026-06-20'},
+    {'origem': 'CHA', 'destino': 'ATL', 'ida': '2026-06-10', 'volta': '2026-06-20'},
+    {'origem': 'CHC', 'destino': 'MSY', 'ida': '2026-06-10', 'volta': '2026-06-20'},
+    {'origem': 'ATL', 'destino': 'CHC', 'ida': '2026-06-10', 'volta': '2026-06-20'},
+    {'origem': 'ATL', 'destino': 'MSY', 'ida': '2026-06-10', 'volta': '2026-06-20'},
+    {'origem': 'MSY', 'destino': 'CHC', 'ida': '2026-06-10', 'volta': '2026-06-20'},
+    {'origem': 'MSY', 'destino': 'ATL', 'ida': '2026-06-10', 'volta': '2026-06-20'},
 ]
-
 DB_NAME = "voos_local.db"
 
-# --- 1. BANCO DE DADOS ---
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS voos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            origem TEXT,
-            destino TEXT,
-            data_voo TEXT,
-            companhia TEXT,
-            preco_bruto TEXT,
-            preco_numerico REAL,
+            origem TEXT, destino TEXT, data_ida TEXT, data_volta TEXT,
+            companhia TEXT, preco_bruto TEXT, preco_numerico REAL,
+            hora_saida TEXT, hora_chegada TEXT, duracao TEXT, escalas TEXT,
             coletado_em DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     ''')
@@ -36,139 +39,103 @@ def init_db():
 def salvar_voo(dados):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    
-    # Limpeza básica do preço para salvar numérico também (para ordenar depois)
     try:
-        # Remove "R$", pontos e espaços, troca vírgula por ponto
-        limpo = re.sub(r'[^\d,]', '', dados['preco'])
-        preco_num = float(limpo.replace(',', '.'))
-    except:
-        preco_num = 0.0
-
-    cursor.execute('''
-        INSERT INTO voos (origem, destino, data_voo, companhia, preco_bruto, preco_numerico)
-        VALUES (?, ?, ?, ?, ?, ?)
-    ''', (dados['origem'], dados['destino'], dados['data'], dados['companhia'], dados['preco'], preco_num))
+        limpo = re.sub(r'[^\d]', '', dados['preco'])
+        preco_num = float(limpo)
+    except: preco_num = 0.0
     
+    cursor.execute('''
+        INSERT INTO voos (origem, destino, data_ida, data_volta, companhia, preco_bruto, preco_numerico, 
+                          hora_saida, hora_chegada, duracao, escalas)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (dados['origem'], dados['destino'], dados['ida'], dados['volta'], 
+          dados['companhia'], dados['preco'], preco_num, 
+          dados['saida'], dados['chegada'], dados['duracao'], dados['escalas']))
     conn.commit()
     conn.close()
-    print(f"   [SALVO] {dados['companhia']} | {dados['preco']}")
 
-# --- 2. MOTOR DE SCRAPING ---
-def extrair_dados_da_pagina(page, origem, destino, data):
-    print("   -> Analisando resultados...")
+def extrair_dados_kayak(page, rota):
+    print(f"   -> Extraindo detalhes para {rota['origem']}...")
     
-    # Google Flights carrega dinamicamente. Vamos garantir que a lista carregou.
-    # O seletor 'body' sempre existe, mas queremos esperar pelos resultados.
-    # Estratégia: Esperar aparecer algum texto de preço "R$"
     try:
-        page.wait_for_selector('div[role="listitem"]', timeout=15000)
+        page.wait_for_selector('.nrc6', timeout=30000)
     except:
-        print("   [!] Timeout: A lista de voos não carregou ou não há voos.")
+        print("   [!] Erro: Cards de voo não carregaram.")
         return
 
-    # Pega todos os itens da lista principal
-    # role="listitem" é um padrão de acessibilidade que o Google mantém, 
-    # é mais seguro que classes CSS aleatórias como '.JMc5Xc'
-    voos_elementos = page.locator('div[role="listitem"]').all()
+    # Scroll para garantir renderização
+    page.mouse.wheel(0, 1000)
+    time.sleep(2)
+
+    cards = page.query_selector_all('.nrc6')
     
-    if not voos_elementos:
-        print("   [!] Nenhum elemento de lista encontrado.")
-        return
-
     count = 0
-    for voo in voos_elementos:
+    for card in cards:
         try:
-            # Pega todo o texto do cartão do voo e divide em linhas
-            texto_completo = voo.inner_text()
-            linhas = texto_completo.split('\n')
-            
-            # --- LÓGICA HEURÍSTICA ---
-            # O Google Flights geralmente tem essa estrutura visual:
-            # Hora | Cia Aérea | Duração | Escalas | Preço
-            
-            # 1. Achar o preço: busca a linha que tem "R$"
-            preco = next((linha for linha in linhas if "R$" in linha), None)
-            
-            # 2. Achar a companhia: Geralmente é uma das primeiras linhas que NÃO é hora.
-            # Vamos assumir que a Cia Aérea não contém números (simplificação)
-            # ou usar uma lista de conhecidas se necessário.
-            companhia = "N/A"
-            for linha in linhas:
-                # Ignora linhas de horário (ex: 10:00) ou duração (ex: 12 h 30 min)
-                if not re.search(r'\d', linha) and len(linha) > 2: 
-                    companhia = linha
-                    break
-            
-            if preco and "R$" in preco:
-                salvar_voo({
-                    'origem': origem,
-                    'destino': destino,
-                    'data': data,
-                    'companhia': companhia,
-                    'preco': preco
-                })
-                count += 1
-                
+            texto = card.inner_text()
+            if "R$" not in texto: continue
+
+            # 1. Preço
+            preco_match = re.search(r'R\$\s?([\d\.]+)', texto)
+            preco_final = preco_match.group(0) if preco_match else "N/A"
+
+            # 2. Horários (Saída e Chegada) - Geralmente formato 00:00 – 00:00
+            horarios = re.findall(r'(\d{1,2}:\d{2})', texto)
+            saida = horarios[0] if len(horarios) >= 1 else "N/A"
+            chegada = horarios[1] if len(horarios) >= 2 else "N/A"
+
+            # 3. Duração (Ex: 10h 15m)
+            duracao_match = re.search(r'(\d{1,2}h\s\d{1,2}m)', texto)
+            duracao = duracao_match.group(1) if duracao_match else "N/A"
+
+            # 4. Escalas (Ex: direto, 1 escala, 2 escalas)
+            escalas = "direto"
+            if "direto" not in texto.lower():
+                escala_match = re.search(r'(\d\sescala[s]?)', texto.lower())
+                escalas = escala_match.group(1) if escala_match else "Com escalas"
+
+            # 5. Companhia (Busca por elementos de imagem/texto específicos)
+            cia_element = card.query_selector('.J0g6-operator-text')
+            companhia = cia_element.inner_text() if cia_element else "Múltiplas"
+
+            salvar_voo({
+                **rota, 
+                'companhia': companhia, 
+                'preco': preco_final,
+                'saida': saida,
+                'chegada': chegada,
+                'duracao': duracao,
+                'escalas': escalas
+            })
+            count += 1
+            if count >= 8: break 
         except Exception as e:
-            # Erros em itens individuais não devem parar o script
             continue
             
-    print(f"   -> {count} voos processados nesta página.")
+    print(f"   [SUCESSO] {count} voos detalhados salvos.")
 
 def rodar_crawler():
     with sync_playwright() as p:
-        # headless=False: Abre o navegador visualmente.
-        # Isso é CRUCIAL para o Google não te bloquear imediatamente.
-        # Se colocar True, o Google detecta mais fácil que é um robô.
-        browser = p.chromium.launch(headless=False, args=["--lang=pt-BR"])
-        
-        # Cria um contexto com User Agent comum para parecer um PC normal
+        browser = p.chromium.launch(headless=False) # Mantenha False para ver o processo
         context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
+            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         )
-        
         page = context.new_page()
 
-        for item in ROTAS:
-            origem = item['origem']
-            destino = item['destino']
-            data = item['data']
-
-            # URL construída manualmente para o Google Flights
-            url = f"https://www.google.com/travel/flights?q=Flights%20to%20{destino}%20from%20{origem}%20on%20{data}&curr=BRL"
-            
-            print(f"\n--- Iniciando busca: {origem} -> {destino} ({data}) ---")
-            
+        for rota in ROTAS:
+            url = f"https://www.kayak.com.br/flights/{rota['origem']}-{rota['destino']}/{rota['ida']}/{rota['volta']}?sort=price_a"
+            print(f"\n--- Rota: {rota['origem']} -> {rota['destino']} ---")
             try:
-                page.goto(url)
-                
-                # Tenta fechar popups de Cookies se aparecerem (comum na Europa/BR)
-                try:
-                    botao_cookie = page.get_by_text("Aceitar", exact=True)
-                    if botao_cookie.is_visible():
-                        botao_cookie.click()
-                        time.sleep(2)
-                except:
-                    pass
-
-                # Pausa humana aleatória (essencial para evitar bloqueio)
-                time.sleep(random.uniform(4, 8))
-                
-                extrair_dados_da_pagina(page, origem, destino, data)
-
+                page.goto(url, wait_until="domcontentloaded")
+                time.sleep(20) # Tempo para bypass de segurança
+                extrair_dados_kayak(page, rota)
             except Exception as e:
-                print(f"   [ERRO CRÍTICO] Falha ao acessar {url}: {e}")
-
-            # Pausa longa entre rotas diferentes
-            espera = random.randint(10, 20)
-            print(f"   (Dormindo {espera}s para não irritar o Google...)")
-            time.sleep(espera)
+                print(f"   [ERRO] {e}")
+            
+            time.sleep(random.randint(10, 15))
 
         browser.close()
 
 if __name__ == "__main__":
     init_db()
-    print("Iniciando Crawler Local (Sem API)...")
     rodar_crawler()
-    print("\nProcesso finalizado. Verifique o arquivo 'voos_local.db'.")
