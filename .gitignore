@@ -252,4 +252,9 @@ pip-selfcheck.json
 ### VisualStudioCode Patch ###
 # Ignore all local history of files
 .history
-.ionidevoos_local.db
+.ionide
+
+# Database files
+voos_local.db
+data/voos_local.db
+data/*.db

@@ -1,6 +1,9 @@
 import sqlite3
+import os
 
-DB_NAME = "voos_kayak_detalhado.db"
+# Usar diretório de dados se existir (Docker), senão usar diretório atual
+DATA_DIR = "/app/data" if os.path.exists("/app/data") else "data" if os.path.exists("data") else "."
+DB_NAME = os.path.join(DATA_DIR, "voos_local.db")
 
 def relatorio_completo_viagem():
     conn = sqlite3.connect(DB_NAME)

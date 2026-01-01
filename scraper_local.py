@@ -2,24 +2,63 @@ import sqlite3
 import time
 import random
 import re
+import os
 from playwright.sync_api import sync_playwright
 
 # --- CONFIGURAÇÕES ---
+# Usar diretório de dados se existir (Docker ou local), senão usar diretório atual
+DATA_DIR = "/app/data" if os.path.exists("/app/data") else "data" if os.path.exists("data") else "."
+DB_NAME = os.path.join(DATA_DIR, "voos_local.db")
+
+# Lista padrão para execução standalone
 ROTAS = [
     {'origem': 'GYN', 'destino': 'ATL', 'ida': '2026-06-15', 'volta': '2026-06-22'},
     {'origem': 'BSB', 'destino': 'ATL', 'ida': '2026-06-10', 'volta': '2026-06-20'},
-    {'origem': 'GYN', 'destino': 'CHC', 'ida': '2026-06-15', 'volta': '2026-06-22'},
-    {'origem': 'BSB', 'destino': 'CHC', 'ida': '2026-06-10', 'volta': '2026-06-20'},
-    {'origem': 'GYN', 'destino': 'MSY', 'ida': '2026-06-15', 'volta': '2026-06-22'},
-    {'origem': 'BSB', 'destino': 'MSY', 'ida': '2026-06-10', 'volta': '2026-06-20'},
-    {'origem': 'CHA', 'destino': 'ATL', 'ida': '2026-06-10', 'volta': '2026-06-20'},
-    {'origem': 'CHC', 'destino': 'MSY', 'ida': '2026-06-10', 'volta': '2026-06-20'},
-    {'origem': 'ATL', 'destino': 'CHC', 'ida': '2026-06-10', 'volta': '2026-06-20'},
-    {'origem': 'ATL', 'destino': 'MSY', 'ida': '2026-06-10', 'volta': '2026-06-20'},
-    {'origem': 'MSY', 'destino': 'CHC', 'ida': '2026-06-10', 'volta': '2026-06-20'},
-    {'origem': 'MSY', 'destino': 'ATL', 'ida': '2026-06-10', 'volta': '2026-06-20'},
 ]
-DB_NAME = "voos_local.db"
+
+def gerar_rotas(origem, destinos, data_ida, data_volta):
+    """
+    Gera lista de rotas com base nos parâmetros fornecidos.
+    
+    Args:
+        origem: Código IATA do aeroporto de origem
+        destinos: Lista de códigos IATA dos aeroportos de destino
+        data_ida: Data de partida (formato 'YYYY-MM-DD')
+        data_volta: Data de retorno (formato 'YYYY-MM-DD')
+    
+    Returns:
+        Lista de dicionários com as rotas a serem pesquisadas
+    """
+    rotas = []
+    
+    # 1. Rotas origem -> cada destino
+    for destino in destinos:
+        rotas.append({
+            'origem': origem,
+            'destino': destino,
+            'ida': data_ida,
+            'volta': data_volta
+        })
+    
+    # 2. Se houver múltiplos destinos, adicionar rotas entre eles
+    if len(destinos) > 1:
+        for i, dest1 in enumerate(destinos):
+            for dest2 in destinos[i+1:]:
+                # Adiciona ambas as direções entre os destinos
+                rotas.append({
+                    'origem': dest1,
+                    'destino': dest2,
+                    'ida': data_ida,
+                    'volta': data_volta
+                })
+                rotas.append({
+                    'origem': dest2,
+                    'destino': dest1,
+                    'ida': data_ida,
+                    'volta': data_volta
+                })
+    
+    return rotas
 
 def init_db():
     conn = sqlite3.connect(DB_NAME)
@@ -114,13 +153,37 @@ def extrair_dados_kayak(page, rota):
             
     print(f"   [SUCESSO] {count} voos detalhados salvos.")
 
-def rodar_crawler():
+def rodar_crawler(origem=None, destinos=None, data_ida=None, data_volta=None):
+    """
+    Executa o crawler de passagens aéreas.
+    
+    Args:
+        origem: Código IATA do aeroporto de origem
+        destinos: Lista de códigos IATA dos aeroportos de destino
+        data_ida: Data de partida (formato 'YYYY-MM-DD')
+        data_volta: Data de retorno (formato 'YYYY-MM-DD')
+    """
+    # Se não forem fornecidos parâmetros, usar valores padrão
+    if not origem or not destinos or not data_ida or not data_volta:
+        print("[INFO] Usando rotas padrão da lista ROTAS...")
+        rotas = ROTAS
+    else:
+        rotas = gerar_rotas(origem, destinos, data_ida, data_volta)
+        print(f"[INFO] Gerando {len(rotas)} rotas para pesquisa...")
+    
+    # Detectar se está rodando em Docker (sem display gráfico)
+    is_docker = os.path.exists('/.dockerenv') or os.path.exists('/app/data')
+    headless_mode = is_docker  # True no Docker, False localmente
+    
     with sync_playwright() as p:
 
-        # headless=False: Abre o navegador visualmente.
-        # Isso é CRUCIAL para o Google não te bloquear imediatamente.
-        # Se colocar True, o Google detecta mais fácil que é um robô.
-        browser = p.chromium.launch(headless=False, args=["--lang=pt-BR"])
+        # headless=False: Abre o navegador visualmente (apenas local).
+        # No Docker, sempre usa headless=True pois não há display.
+        print(f"[INFO] Modo headless: {headless_mode}")
+        browser = p.chromium.launch(
+            headless=headless_mode,
+            args=["--lang=pt-BR", "--no-sandbox", "--disable-setuid-sandbox"]
+        )
                 
         # Cria um contexto com User Agent comum para parecer um PC normal
         context = browser.new_context(
@@ -128,7 +191,7 @@ def rodar_crawler():
         )
         page = context.new_page()
 
-        for rota in ROTAS:
+        for rota in rotas:
             url = f"https://www.kayak.com.br/flights/{rota['origem']}-{rota['destino']}/{rota['ida']}/{rota['volta']}?sort=price_a"
             print(f"\n--- Rota: {rota['origem']} -> {rota['destino']} ---")
             try:

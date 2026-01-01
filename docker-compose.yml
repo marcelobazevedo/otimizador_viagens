@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   streamlit-app:
     build:
@@ -10,16 +8,14 @@ services:
       - "8501:8501"
     volumes:
       - ./utils:/app/utils:ro
-      - ./voos_local.db:/app/voos_local.db
-      - streamlit-data:/app/data
+      - ./data:/app/data
+      - ./scraper_local.py:/app/scraper_local.py:ro
+      - ./scraper_aluguel_carros.py:/app/scraper_aluguel_carros.py:ro
     environment:
       - AMADEUS_TOKEN=${AMADEUS_TOKEN:-}
     restart: unless-stopped
     networks:
       - otimizador-network  
-
-volumes:
-  streamlit-data:  
 
 networks:
   otimizador-network:

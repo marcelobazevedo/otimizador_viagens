@@ -1,6 +1,12 @@
 import streamlit as st
 import pandas as pd
 import os
+import subprocess
+import sys
+
+# Importar os scrapers
+from scraper_local import rodar_crawler as buscar_passagens, init_db as init_db_voos
+from scraper_aluguel_carros import rodar_crawler as buscar_carros, init_db as init_db_carros
 
 # --- CONFIGURAÇÃO E CARREGAMENTO DE DADOS ---
 @st.cache_data
@@ -77,13 +83,71 @@ budget = st.sidebar.number_input("Orçamento Total (R$)", value=15000, step=500)
 # alpha = st.sidebar.slider("Prioridade Custo vs Tempo", 0.0, 1.0, 0.7, 
 #                           help="0 = Prioriza Tempo, 1 = Prioriza Custo")
 
-# --- EXECUÇÃO ---
-if st.button("Calcular Melhor Itinerário", type="primary"):
+# --- BOTÕES DE AÇÃO ---
+st.markdown("---")
+
+# Botão para executar o scraping
+if st.button("🔍 Buscar Passagens e Carros", type="primary", use_container_width=True):
     if not origem_iata or not destinos_iata:
         st.warning("Por favor, selecione a origem e ao menos um destino.")
     else:
-        with st.spinner('Executando modelo de otimização...'):
-            # Aqui entrará sua Engine de Otimização
-            st.info(f"Otimizando de {origem_iata} para {destinos_iata}")
-            # simulando resultado
-            st.success("Itinerário gerado com sucesso!")
+        # Converter datas para formato string YYYY-MM-DD
+        data_ida_str = data_ida.strftime('%Y-%m-%d')
+        data_volta_str = data_volta.strftime('%Y-%m-%d')
+        
+        with st.spinner('Executando pesquisa de passagens e carros...'):
+            try:
+                # Inicializar bancos de dados
+                init_db_voos()
+                init_db_carros()
+                
+                st.info(f"🔍 Buscando passagens de {origem_iata} para {', '.join(destinos_iata)}")
+                
+                # 1. Buscar passagens
+                st.write("### Etapa 1: Buscando passagens aéreas")
+                st.write(f"- Origem: {origem_iata}")
+                st.write(f"- Destinos: {', '.join(destinos_iata)}")
+                st.write(f"- Período: {data_ida_str} a {data_volta_str}")
+                
+                # Executar busca de passagens em processo separado para evitar problemas
+                with st.status("Pesquisando passagens...", expanded=True) as status:
+                    st.write("Iniciando scraper de passagens...")
+                    buscar_passagens(
+                        origem=origem_iata,
+                        destinos=destinos_iata,
+                        data_ida=data_ida_str,
+                        data_volta=data_volta_str
+                    )
+                    status.update(label="Passagens coletadas!", state="complete")
+                
+                # 2. Buscar aluguel de carros
+                st.write("### Etapa 2: Buscando aluguel de carros")
+                st.write(f"- Locais: {', '.join(destinos_iata)}")
+                st.write(f"- Período: {data_ida_str} a {data_volta_str}")
+                
+                with st.status("Pesquisando aluguel de carros...", expanded=True) as status:
+                    st.write("Iniciando scraper de carros...")
+                    buscar_carros(
+                        destinos=destinos_iata,
+                        data_inicio=data_ida_str,
+                        data_fim=data_volta_str
+                    )
+                    status.update(label="Carros coletados!", state="complete")
+                
+                st.success("✅ Pesquisa concluída! Dados salvos no banco de dados.")
+                st.info("💡 Use o arquivo visualizar_precos.py para ver os resultados ou acesse o banco voos_local.db")
+                
+            except Exception as e:
+                st.error(f"Erro durante a execução: {str(e)}")
+                st.exception(e)
+
+# Botão para calcular melhor itinerário (será implementado futuramente)
+st.markdown("---")
+if st.button("📊 Calcular Melhor Itinerário", use_container_width=True):
+    if not origem_iata or not destinos_iata:
+        st.warning("Por favor, selecione a origem e ao menos um destino.")
+    else:
+        st.info("🚧 Funcionalidade em desenvolvimento. Esta função irá otimizar o itinerário com base nos dados coletados.")
+        st.write(f"Origem: {origem_iata}")
+        st.write(f"Destinos: {', '.join(destinos_iata)}")
+        st.write(f"Orçamento: R$ {budget:,.2f}")
