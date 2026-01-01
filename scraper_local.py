@@ -116,7 +116,13 @@ def extrair_dados_kayak(page, rota):
 
 def rodar_crawler():
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False) # Mantenha False para ver o processo
+
+        # headless=False: Abre o navegador visualmente.
+        # Isso é CRUCIAL para o Google não te bloquear imediatamente.
+        # Se colocar True, o Google detecta mais fácil que é um robô.
+        browser = p.chromium.launch(headless=False, args=["--lang=pt-BR"])
+                
+        # Cria um contexto com User Agent comum para parecer um PC normal
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         )

@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  streamlit-app:
+    build:
+      context: .
+      dockerfile: Dockerfile.streamlit
+    container_name: otimizador-streamlit
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./utils:/app/utils:ro
+      - ./voos_local.db:/app/voos_local.db
+      - streamlit-data:/app/data
+    environment:
+      - AMADEUS_TOKEN=${AMADEUS_TOKEN:-}
+    restart: unless-stopped
+    networks:
+      - otimizador-network  
+
+volumes:
+  streamlit-data:  
+
+networks:
+  otimizador-network:
+    driver: bridge
