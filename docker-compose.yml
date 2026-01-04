@@ -11,11 +11,12 @@ services:
       - ./data:/app/data
       - ./scraper_local.py:/app/scraper_local.py:ro
       - ./scraper_aluguel_carros.py:/app/scraper_aluguel_carros.py:ro
-    environment:
-      - AMADEUS_TOKEN=${AMADEUS_TOKEN:-}
     restart: unless-stopped
     networks:
-      - otimizador-network  
+      - otimizador-network
+    shm_size: '2gb'
+    environment:
+      - PYTHONUNBUFFERED=1  
 
 networks:
   otimizador-network:

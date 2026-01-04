@@ -254,7 +254,4 @@ pip-selfcheck.json
 .history
 .ionide
 
-# Database files
-voos_local.db
-data/voos_local.db
-data/*.db
+
