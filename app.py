@@ -6,6 +6,8 @@ import math
 import networkx as nx
 import matplotlib.pyplot as plt
 from datetime import date, datetime, timedelta
+import folium
+from streamlit_folium import st_folium
 
 # Importar os scrapers
 from scraper_local import rodar_crawler as buscar_passagens, init_db as init_db_voos
@@ -34,9 +36,9 @@ def load_airport_data():
     )
     return df
 
-# Funções para gráficos do otimizador
-def plot_connection_graph(db_path):
-    """Gera um grafo de todas as conexões encontradas no banco de dados."""
+# --- FUNÇÕES DE MAPA ---
+def plot_connection_graph_map(db_path, df_airports):
+    """Gera um mapa com todas as conexões encontradas no banco de dados."""
     if not os.path.exists(db_path):
         return None
     
@@ -47,26 +49,189 @@ def plot_connection_graph(db_path):
     
     df_total = pd.concat([df_voos, df_carros]).drop_duplicates()
     
-    G = nx.DiGraph()
-    for _, row in df_total.iterrows():
-        G.add_edge(row['origem'], row['destino'])
+    if df_total.empty:
+        return None
     
-    fig, ax = plt.subplots(figsize=(8, 5))
-    pos = nx.spring_layout(G, seed=42)
-    nx.draw(G, pos, with_labels=True, node_color='#BBDEFB', edge_color='gray', 
-            node_size=1000, font_size=8, font_weight='bold', arrowsize=15, ax=ax)
-    return fig
+    # Obter coordenadas de todos os aeroportos únicos
+    aeroportos_unicos = set(df_total['origem'].tolist() + df_total['destino'].tolist())
+    coords_dict = {}
+    
+    for iata in aeroportos_unicos:
+        airport_info = df_airports[df_airports['iata_code'] == iata]
+        if not airport_info.empty:
+            coords_dict[iata] = {
+                'lat': airport_info.iloc[0]['latitude_deg'],
+                'lon': airport_info.iloc[0]['longitude_deg'],
+                'name': airport_info.iloc[0]['name']
+            }
+    
+    if not coords_dict:
+        return None
+    
+    # Calcular centro do mapa
+    avg_lat = sum(c['lat'] for c in coords_dict.values()) / len(coords_dict)
+    avg_lon = sum(c['lon'] for c in coords_dict.values()) / len(coords_dict)
+    
+    # Criar mapa
+    m = folium.Map(location=[avg_lat, avg_lon], zoom_start=3)
+    
+    # Adicionar marcadores para cada aeroporto
+    for iata, info in coords_dict.items():
+        folium.Marker(
+            location=[info['lat'], info['lon']],
+            popup=f"{iata} - {info['name']}",
+            tooltip=iata,
+            icon=folium.Icon(color='blue', icon='info-sign')
+        ).add_to(m)
+    
+    # Adicionar linhas para cada conexão
+    for _, row in df_total.iterrows():
+        orig = row['origem']
+        dest = row['destino']
+        
+        if orig in coords_dict and dest in coords_dict:
+            folium.PolyLine(
+                locations=[
+                    [coords_dict[orig]['lat'], coords_dict[orig]['lon']],
+                    [coords_dict[dest]['lat'], coords_dict[dest]['lon']]
+                ],
+                color='gray',
+                weight=2,
+                opacity=0.6,
+                popup=f"{orig} → {dest}"
+            ).add_to(m)
+    
+    return m
 
-def plot_itinerary_graph(itinerario):
-    """Gera o grafo sequencial da solução encontrada pelo solver."""
+def plot_itinerary_graph_map(itinerario, df_airports):
+    """Gera o mapa do itinerário sequencial da solução encontrada pelo solver."""
+    if itinerario is None or itinerario.empty:
+        return None
+    
+    # Garantir que o index está resetado
+    itinerario = itinerario.reset_index(drop=True)
+    
+    # Obter coordenadas de todos os aeroportos do itinerário
+    aeroportos_unicos = set(itinerario['origem'].tolist() + itinerario['destino'].tolist())
+    coords_dict = {}
+    
+    for iata in aeroportos_unicos:
+        if pd.isna(iata) or not iata:
+            continue
+        airport_info = df_airports[df_airports['iata_code'] == iata]
+        if not airport_info.empty:
+            lat = airport_info.iloc[0]['latitude_deg']
+            lon = airport_info.iloc[0]['longitude_deg']
+            # Verificar se as coordenadas são válidas
+            if pd.notna(lat) and pd.notna(lon) and isinstance(lat, (int, float)) and isinstance(lon, (int, float)):
+                coords_dict[iata] = {
+                    'lat': float(lat),
+                    'lon': float(lon),
+                    'name': airport_info.iloc[0]['name']
+                }
+    
+    if not coords_dict:
+        return None
+    
+    # Calcular centro do mapa
+    avg_lat = sum(c['lat'] for c in coords_dict.values()) / len(coords_dict)
+    avg_lon = sum(c['lon'] for c in coords_dict.values()) / len(coords_dict)
+    
+    # Criar mapa
+    m = folium.Map(location=[avg_lat, avg_lon], zoom_start=4, tiles='OpenStreetMap')
+    
+    # Cores para diferentes tipos de transporte
+    cores = {
+        'Voo': 'blue',
+        'Carro': 'green'
+    }
+    
+    # Adicionar marcadores e linhas sequenciais
+    aeroportos_adicionados = set()
+    
+    for i, row in itinerario.iterrows():
+        orig = row['origem']
+        dest = row['destino']
+        seq = i + 1
+        modo = row['tipo']
+        custo = row['preco_numerico']
+        tempo = row.get('duracao', 'N/A')
+        
+        if orig in coords_dict and dest in coords_dict:
+            cor = cores.get(modo, 'gray')
+            
+            # Adicionar marcador de origem (se ainda não foi adicionado)
+            if orig not in aeroportos_adicionados:
+                cor_icone = 'red' if i == 0 else 'blue'
+                folium.Marker(
+                    location=[coords_dict[orig]['lat'], coords_dict[orig]['lon']],
+                    popup=folium.Popup(f"<b>{orig}</b><br>{coords_dict[orig]['name']}", max_width=200),
+                    tooltip=f"{orig}",
+                    icon=folium.Icon(color=cor_icone, icon='info-sign')
+                ).add_to(m)
+                aeroportos_adicionados.add(orig)
+            
+            # Adicionar marcador de destino
+            if dest not in aeroportos_adicionados:
+                cor_icone = 'green' if i == len(itinerario) - 1 else 'blue'
+                folium.Marker(
+                    location=[coords_dict[dest]['lat'], coords_dict[dest]['lon']],
+                    popup=folium.Popup(f"<b>{dest}</b><br>{coords_dict[dest]['name']}<br>Passo #{seq}", max_width=200),
+                    tooltip=f"{dest}",
+                    icon=folium.Icon(color=cor_icone, icon='info-sign')
+                ).add_to(m)
+                aeroportos_adicionados.add(dest)
+            
+            # Adicionar linha com informações
+            popup_text = f"""
+            <b>Passo {seq}: {orig} → {dest}</b><br>
+            <b>Tipo:</b> {modo}<br>
+            <b>Custo:</b> R$ {custo:,.2f}<br>
+            <b>Duração:</b> {tempo}
+            """
+            
+            folium.PolyLine(
+                locations=[
+                    [coords_dict[orig]['lat'], coords_dict[orig]['lon']],
+                    [coords_dict[dest]['lat'], coords_dict[dest]['lon']]
+                ],
+                color=cor,
+                weight=4 if modo == 'Voo' else 3,
+                opacity=0.8,
+                popup=folium.Popup(popup_text, max_width=300),
+                tooltip=f"#{seq} {modo}: {orig} → {dest}"
+            ).add_to(m)
+    
+    # Adicionar legenda
+    legend_html = '''
+    <div style="position: fixed; 
+                bottom: 50px; left: 50px; width: 200px; height: 90px; 
+                background-color: white; border:2px solid grey; z-index:9999; 
+                font-size:14px; padding: 10px">
+    <p><b>Legenda:</b></p>
+    <p><span style="color:blue">━━━</span> Voo</p>
+    <p><span style="color:green">━━━</span> Carro</p>
+    </div>
+    '''
+    m.get_root().html.add_child(folium.Element(legend_html))
+    
+    return m
+
+def plot_connection_graph(db_path, df_airports):
+    """Gera um mapa com todas as conexões encontradas no banco de dados."""
+    m = plot_connection_graph_map(db_path, df_airports)
+    if m:
+        st_folium(m, width=700, height=500)
+    else:
+        st.warning("Nenhum dado encontrado no banco para gerar o mapa.")
+
+def plot_itinerary_graph(itinerario, df_airports):
+    """Gera o mapa do itinerário sequencial da solução encontrada pelo solver."""
     if itinerario is None or itinerario.empty:
         st.error("Itinerário vazio.")
         return
     
-    G = nx.DiGraph()
     resumo_texto = []
-    
-    # Garantir que o index está resetado para a contagem #1, #2...
     itinerario = itinerario.reset_index(drop=True)
 
     for i, row in itinerario.iterrows():
@@ -77,41 +242,26 @@ def plot_itinerary_graph(itinerario):
         custo = row['preco_numerico']
         tempo = row.get('duracao', 'N/A')
         
-        # Label para a aresta do grafo
-        label_map = f"#{seq}\n{modo}\nR$ {custo:.0f}\nDur: {tempo}"
-        G.add_edge(orig, dest, label=label_map, modo=modo)
-        
-        # Montar lista de resumo
         resumo_texto.append(f"**{seq}º Passo:** {orig} → {dest} | **{modo}** | R$ {custo:,.2f} | ⏳ {tempo}")
 
-    fig, ax = plt.subplots(figsize=(10, 6))
-    pos = nx.circular_layout(G) # Layout circular para ciclos
+    # Plotar mapa
+    try:
+        m = plot_itinerary_graph_map(itinerario, df_airports)
+        if m is not None:
+            # Usar st_folium com parâmetros explícitos
+            st_folium(m, width=700, height=500, returned_objects=[])
+        else:
+            st.error("Não foi possível gerar o mapa do itinerário. Verifique se os aeroportos têm coordenadas válidas.")
+            st.info(f"Aeroportos no itinerário: {set(itinerario['origem'].tolist() + itinerario['destino'].tolist())}")
+    except Exception as e:
+        st.error(f"Erro ao gerar o mapa: {str(e)}")
+        import traceback
+        st.code(traceback.format_exc())
     
-    # Desenhar nós
-    nx.draw_networkx_nodes(G, pos, node_size=1200, node_color='#f0f2f6', edgecolors='black', ax=ax)
-    nx.draw_networkx_labels(G, pos, font_size=10, font_weight='bold', ax=ax)
-    
-    # Desenhar arestas
-    for u, v, data in G.edges(data=True):
-        cor = 'blue' if data['modo'] == 'Voo' else 'green'
-        estilo = 'solid' if data['modo'] == 'Voo' else 'dashed'
-        nx.draw_networkx_edges(G, pos, edgelist=[(u,v)], edge_color=cor, 
-                               width=2, arrowsize=20, style=estilo,
-                               connectionstyle="arc3,rad=0.1", ax=ax)
-        
-        # Labels nas arestas
-        x = (pos[u][0] + pos[v][0]) / 2
-        y = (pos[u][1] + pos[v][1]) / 2
-        
-        ax.text(x, y, data['label'], color=cor, fontsize=8, fontweight='bold', 
-                ha='center', bbox=dict(facecolor='white', alpha=0.7, edgecolor='none'))
-
-    plt.axis('off')
-    st.pyplot(fig)
-    
-    # Exibir resumo abaixo do gráfico
+    # Exibir resumo abaixo do mapa
+    st.markdown("### 📋 Resumo do Itinerário")
     for r in resumo_texto:
-        st.write(r)
+        st.markdown(r)
 
 # Inicializar session_state para gerenciar pesquisas
 if 'pesquisas' not in st.session_state:
@@ -365,14 +515,11 @@ with tab1:
                     
                     # Processar aluguéis de carros identificados
                     st.markdown("### 🚗 Aluguel de Carros - Comparação Avião vs Carro")
-                    print(f"\n[DEBUG app.py] alugueis_unicos: {alugueis_unicos}")
-                    print(f"[DEBUG app.py] Total de aluguéis: {len(alugueis_unicos)}")
                     
                     if alugueis_unicos:
                         st.info(f"📊 Identificados {len(alugueis_unicos)} deslocamento(s) interno(s) para comparar")
                         
                         for aluguel in alugueis_unicos:
-                            print(f"\n[DEBUG app.py] Processando aluguel: {aluguel}")
                             mesmo_local = aluguel['retirada'] == aluguel['entrega']
                             
                             st.markdown(f"#### {aluguel['trecho']} ({aluguel['pais']})")
@@ -401,11 +548,6 @@ with tab1:
                             with st.status(f"Pesquisando carros: {aluguel['retirada']} → {aluguel['entrega']}...", expanded=True) as status:
                                 st.write(taxa_info)
                                 st.write(f"Pesquisando aluguel para {aluguel['dias_aluguel']} dias...")
-                                print(f"\n[DEBUG app.py] Chamando buscar_carros com:")
-                                print(f"  - local_retirada: {aluguel['retirada']}")
-                                print(f"  - local_entrega: {aluguel['entrega']}")
-                                print(f"  - data_inicio: {aluguel['data_inicio']}")
-                                print(f"  - data_fim: {aluguel['data_fim']}")
                                 
                                 try:
                                     buscar_carros(
@@ -417,9 +559,7 @@ with tab1:
                                         tempo_viagem_horas=aluguel['tempo_viagem_horas'],
                                         distancia_km=aluguel['distancia_km']
                                     )
-                                    print(f"[DEBUG app.py] buscar_carros executado com sucesso")
                                 except Exception as e:
-                                    print(f"[ERRO app.py] Erro ao chamar buscar_carros: {e}")
                                     st.error(f"Erro ao buscar carros: {e}")
                                     import traceback
                                     traceback.print_exc()
@@ -563,6 +703,7 @@ with tab2:
         alpha = st.slider("Prioridade: Custo (1) vs Tempo (0)", 0.0, 1.0, 0.7, key="alpha_otimizador")
     
     # --- BOTÃO OTIMIZAR ---
+    st.markdown("---")
     if st.button("Calcular Melhor Itinerário", use_container_width=True, key="calcular_itinerario"):
         if not origem_iata or not destinos_iata:
             st.warning("Selecione a origem e os destinos.")
@@ -576,8 +717,13 @@ with tab2:
             with st.spinner('Otimizando rotas...'):
                 itinerario = engine.solve()
                 
-                if isinstance(itinerario, str) and itinerario == "ERRO_SEM_RETORNO":
-                    st.error(f"Inviável: Não existem voos de volta para {origem_iata} no banco.")
+                if isinstance(itinerario, str):
+                    if itinerario == "ERRO_SEM_RETORNO":
+                        st.error(f"Inviável: Não existem voos de volta para {origem_iata} no banco.")
+                    elif itinerario == "ERRO_SEM_DADOS":
+                        st.error("Inviável: Não há dados suficientes no banco para otimizar.")
+                    else:
+                        st.error(f"Erro: {itinerario}")
                 elif itinerario is not None:
                     st.success("Melhor Itinerário Encontrado!")
                     
@@ -588,9 +734,9 @@ with tab2:
                     custo_total = itinerario['preco_numerico'].sum()
                     st.metric("Investimento Total", f"R$ {custo_total:,.2f}")
                     
-                    # 3. Gráfico da Solução
-                    st.subheader("Visualização do Roteiro Passo-a-Passo")
-                    plot_itinerary_graph(itinerario)
+                    # 3. Mapa da Solução (plotado automaticamente após otimização)
+                    st.subheader("🗺️ Visualização do Roteiro no Mapa")
+                    plot_itinerary_graph(itinerario, df_airports)
                 else:
                     st.error("Inviável: Orçamento insuficiente ou restrições de tempo.")
 
@@ -604,4 +750,5 @@ st.sidebar.markdown(f"""
 1. Use a aba "Scraper" para coletar dados de voos e carros
 2. Use a aba "Otimizador" para encontrar o melhor itinerário
 3. Configure parâmetros e execute as pesquisas
+4. Visualize os resultados em mapas interativos
 """)
