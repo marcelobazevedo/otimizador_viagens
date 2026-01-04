@@ -17,10 +17,11 @@ class TripOptimizerEngine:
 
     def _get_minutes(self, duration_str):
         """Converte '6h 20m' para minutos inteiros."""
-        if not isinstance(duration_str, str): return 0
+        if not isinstance(duration_str, str) or pd.isna(duration_str):
+            return 0
         try:
-            hours = re.search(r'(\d+)h', duration_str)
-            minutes = re.search(r'(\d+)m', duration_str)
+            hours = re.search(r'(\d+)h', str(duration_str))
+            minutes = re.search(r'(\d+)m', str(duration_str))
             h = int(hours.group(1)) if hours else 0
             m = int(minutes.group(1)) if minutes else 0
             return h * 60 + m
@@ -58,8 +59,29 @@ class TripOptimizerEngine:
             f"SELECT * FROM aluguel_carros WHERE local_retirada IN {tuple(permitidas)} AND local_entrega IN {tuple(permitidas)}", conn)
         conn.close()
 
-        # Processar durações
-        self.df_voos['duracao_min'] = self.df_voos['duracao'].apply(self._get_minutes)
+        # Processar durações dos voos
+        # A tabela tem ida_duracao e volta_duracao, precisamos combinar
+        def calcular_duracao_total(row):
+            """Calcula duração total combinando ida e volta se existir"""
+            ida_min = self._get_minutes(row.get('ida_duracao', ''))
+            volta_min = self._get_minutes(row.get('volta_duracao', '')) if pd.notna(row.get('volta_duracao')) else 0
+            return ida_min + volta_min
+        
+        # Criar coluna duracao_min com a soma de ida e volta
+        self.df_voos['duracao_min'] = self.df_voos.apply(calcular_duracao_total, axis=1)
+        
+        # Criar coluna duracao formatada para exibição
+        def formatar_duracao(row):
+            """Formata duração para exibição"""
+            ida = row.get('ida_duracao', 'N/A')
+            volta = row.get('volta_duracao', None)
+            if pd.notna(volta) and volta:
+                return f"{ida} + {volta}"
+            return str(ida)
+        
+        self.df_voos['duracao'] = self.df_voos.apply(formatar_duracao, axis=1)
+        
+        # Processar durações dos carros
         for idx, row in self.df_carros.iterrows():
             d_str, d_min = self._estimate_car_duration(row['local_retirada'], row['local_entrega'])
             self.df_carros.at[idx, 'duracao'] = d_str
@@ -100,6 +122,11 @@ class TripOptimizerEngine:
 
     def solve(self):
         self.load_and_filter_data()
+        
+        # Verificar se há dados
+        if self.df_voos.empty:
+            return "ERRO_SEM_DADOS"
+        
         if self.df_voos[self.df_voos['destino'] == self.config['origem']].empty:
             return "ERRO_SEM_RETORNO"
 
