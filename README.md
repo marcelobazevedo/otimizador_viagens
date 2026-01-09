@@ -267,6 +267,19 @@ SELECT * FROM aluguel_carros WHERE local_retirada='ATL';
 - **Objetivos**: Minimizar custo e tempo
 - **Restrições**: Orçamento, continuidade de rota
 
+### Fronteira de Pareto
+
+![Fronteira de Pareto](docs/images/fronteira-pareto.png)
+
+O algoritmo NSGA-II gera uma **Fronteira de Pareto** com múltiplas soluções ótimas, permitindo que o usuário escolha o melhor equilíbrio entre custo e tempo. Cada ponto no gráfico representa um itinerário viável:
+
+- **Eixo X (Custo)**: Quanto menor, mais econômica a viagem
+- **Eixo Y (Tempo)**: Quanto menor, mais rápida a viagem
+- **Soluções não-dominadas**: Pontos onde não é possível melhorar um objetivo sem piorar o outro
+- **Trade-off**: Reduzir custo geralmente aumenta o tempo (e vice-versa)
+
+O parâmetro **Alpha (α)** influencia qual região da fronteira será priorizada na solução final apresentada ao usuário.
+
 ## Configuração Avançada
 
 ### Alterar porta do Streamlit
