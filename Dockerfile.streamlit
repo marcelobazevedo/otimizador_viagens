@@ -38,9 +38,11 @@ RUN playwright install-deps chromium
 
 # Copiar código da aplicação
 COPY app.py .
+COPY app-itinerario.py .
 COPY scraper_local.py .
 COPY scraper_aluguel_carros.py .
 COPY utils/ ./utils/
+COPY backend/ ./backend/
 
 # Expor porta do Streamlit
 EXPOSE 8501

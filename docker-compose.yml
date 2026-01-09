@@ -9,6 +9,9 @@ services:
     volumes:
       - ./utils:/app/utils:ro
       - ./data:/app/data
+      - ./backend:/app/backend:ro
+      - ./app.py:/app/app.py:ro
+      - ./app-itinerario.py:/app/app-itinerario.py:ro
       - ./scraper_local.py:/app/scraper_local.py:ro
       - ./scraper_aluguel_carros.py:/app/scraper_aluguel_carros.py:ro
     restart: unless-stopped
