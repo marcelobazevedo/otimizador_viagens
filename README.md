@@ -15,7 +15,8 @@ Sistema inteligente de otimização multimodal de rotas de viagem que utiliza **
 ``` text
 otimizador_viagens/
 ├── docs/                        # Documentações
-│   └── diagrama-sequencia.png  # Diagrama de sequência do sistema
+│   └── images/                 # Imagens e diagramas
+│       └── diagrama-sequencia.png
 ├── backend/                     # Motor de otimização
 │   ├── engine.py               # Algoritmo NSGA-II e solver
 │   └── plot_graph.py           # Visualização de grafos
@@ -78,16 +79,7 @@ git clone git@github.com:marcelobazevedo/otimizador_viagens.git
 cd otimizador_viagens
 ```
 
-### 2. Configurar variáveis de ambiente
-
-
-Crie um arquivo `.env` na raiz do projeto (opcional, apenas se usar API Amadeus):
-
-``` bash
-AMADEUS_TOKEN=seu_token_aqui
-```
-
-### 3. Executar aplicação Streamlit com Docker
+### 2. Executar aplicação Streamlit com Docker
 
 #### Construir e iniciar o container:
 
@@ -117,7 +109,7 @@ docker-compose up -d streamlit-app
 A aplicação estará disponível em: `http://localhost:8501`
 
 
-### 4. Configurar o Scraper
+### 3. Configurar o Scraper
 
 Execução manual do scraper.
 
@@ -298,4 +290,3 @@ O docker-compose monta os seguintes volumes:
 - O Google pode detectar e bloquear scraping excessivo
 - Recomenda-se executar o scraper com moderação (1-2 vezes por dia)
 - O banco de dados é compartilhado entre o scraper e a aplicação Streamlit
->>>>>>> origin/cria-interface-web
