@@ -36,6 +36,24 @@ otimizador_viagens/
 
 ## Funcionalidades Detalhadas
 
+### 🔍 Coleta de Dados (Web Scraping)
+- **Scraping de Voos**: Google Flights com delays aleatórios e simulação de comportamento humano
+- **Scraping de Carros**: Kayak com suporte a retirada/devolução em locais diferentes
+- **Base de Aeroportos**: +200 aeroportos Brasil/Estados Unidos com coordenadas GPS
+- **Banco de Dados SQLite**: Armazenamento persistente com histórico de preços
+
+### 🧠 Otimização de Itinerários
+- **Algoritmo NSGA-II**: Otimização multiobjetivo (custo × tempo)
+- **Configuração de Alpha (α)**: Peso entre custo (α=1.0) e tempo (α=0.0)
+- **Restrições Inteligentes**: Orçamento, continuidade de rota, viabilidade temporal
+- **Frente de Pareto**: Múltiplas soluções ótimas para escolha do usuário
+
+### 🗺️ Visualização e Interface
+- **Mapas Interativos**: Folium com rotas de voos e carros
+- **Gráfico de Conexões**: Todas as rotas disponíveis no banco
+- **Análise de Preços**: Tabelas detalhadas com métricas de voos e carros
+- **Interface Intuitiva**: Streamlit com abas para scraping e otimização
+
 ### Modelagem Matemática Multiobjetivo (MOOP)
 
 O problema é modelado como um Problema de Otimização Multi-objetivo (Multi-Objective Optimization Problem - MOOP), resolvido através do algoritmo genético NSGA-II.
@@ -148,24 +166,6 @@ xi,yj∈{0,1}
 Embora o modelo matemático do solver (NSGA-II) foque em custo, tempo e orçamento, a validade lógica da rota (se os voos e carros formam um caminho contínuo e visitam todos os destinos) é verificada a posteriori no método ``` _validate_itinerary ```.
 
 O solver NSGA-II atua como um mecanismo de seleção (Problema da Mochila) para encontrar combinações de baixo custo e tempo que respeitem o orçamento, e o código posteriormente filtra quais dessas combinações formam itinerários válidos geograficamente.
-
-### 🔍 Coleta de Dados (Web Scraping)
-- **Scraping de Voos**: Google Flights com delays aleatórios e simulação de comportamento humano
-- **Scraping de Carros**: Kayak com suporte a retirada/devolução em locais diferentes
-- **Base de Aeroportos**: +200 aeroportos Brasil/Estados Unidos com coordenadas GPS
-- **Banco de Dados SQLite**: Armazenamento persistente com histórico de preços
-
-### 🧠 Otimização de Itinerários
-- **Algoritmo NSGA-II**: Otimização multiobjetivo (custo × tempo)
-- **Configuração de Alpha (α)**: Peso entre custo (α=1.0) e tempo (α=0.0)
-- **Restrições Inteligentes**: Orçamento, continuidade de rota, viabilidade temporal
-- **Frente de Pareto**: Múltiplas soluções ótimas para escolha do usuário
-
-### 🗺️ Visualização e Interface
-- **Mapas Interativos**: Folium com rotas de voos e carros
-- **Gráfico de Conexões**: Todas as rotas disponíveis no banco
-- **Análise de Preços**: Tabelas detalhadas com métricas de voos e carros
-- **Interface Intuitiva**: Streamlit com abas para scraping e otimização
 
 ## Pré-requisitos
 
