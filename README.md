@@ -60,7 +60,7 @@ otimizador_viagens/
 - Playwright (para o scraper)
 
 ## Diagrama de Sequência
-![Diagrama de Sequência do Sistema](docs/diagrama-sequencia.png)
+![Diagrama de Sequência do Sistema](docs/images/diagrama-sequencia.png)
 
 O diagrama mostra o fluxo completo:
 1. Usuário configura parâmetros (origem, destinos, datas, orçamento)
