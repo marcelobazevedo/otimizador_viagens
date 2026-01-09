@@ -269,7 +269,7 @@ SELECT * FROM aluguel_carros WHERE local_retirada='ATL';
 
 ### Fronteira de Pareto
 
-![Fronteira de Pareto](docs/images/fronteira-pareto.png)
+![Fronteira de Pareto](docs/images/fronteira-pareto.jpeg)
 
 O algoritmo NSGA-II gera uma **Fronteira de Pareto** com múltiplas soluções ótimas, permitindo que o usuário escolha o melhor equilíbrio entre custo e tempo. Cada ponto no gráfico representa um itinerário viável:
 
