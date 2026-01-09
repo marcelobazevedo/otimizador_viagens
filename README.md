@@ -36,6 +36,119 @@ otimizador_viagens/
 
 ## Funcionalidades Detalhadas
 
+### Modelagem Matemática Multiobjetivo (MOOP)
+
+O problema é modelado como um Problema de Otimização Multi-objetivo (Multi-Objective Optimization Problem - MOOP), resolvido através do algoritmo genético NSGA-II.
+
+## 1. Definição das Variáveis de Decisão
+
+O modelo utiliza variáveis binárias para representar a seleção de voos e aluguéis de carros.
+
+```
+I o conjunto de todos os voos disponíveis (baseado no df_voos).
+
+J o conjunto de todas as opções de carros disponíveis (baseado no df_carros).
+```
+
+As variáveis de decisão são:
+
+```
+xi ∈{0,1},∀i∈I : Onde 1 indica que o voo i foi selecionado e 0 caso contrário.
+
+yj ∈{0,1},∀j∈J : Onde 1 indica que o aluguel de carro j foi selecionado e 0 caso contrário.
+```
+
+
+## 2. Parâmetros do Modelo
+
+Para cada voo i e carro j, temos:
+
+```
+Ci : O custo do voo i.
+Cj : O custo do aluguel de carro j.
+
+Ti : Duração (tempo) do voo i.
+Tj : Duração (tempo) do aluguel de carro j.
+
+```
+
+Parâmetros globais:
+
+```
+B : Orçamento total disponível (Budget).
+α : Fator de preferência do usuário (onde α ∈ [0,1]), usado para ponderar entre custo e tempo.
+
+```
+## 3. Funções Auxiliares (Custo e Tempo Total)
+
+O modelo calcula o Custo Total (Ctotal) e o Tempo Total (Ttotal) da solução:
+
+```
+Ctotal(X) = ∑i∈ICiV⋅xi +∑j∈JCjC⋅yj
+
+Ttotal(X) = ∑i∈ITiV⋅xi +∑j∈JTjC⋅yj
+
+```
+
+## 4. Função Objetivo
+
+O solver NSGA-II é configurado para minimizar duas funções objetivo simultaneamente (n_obj=2).
+
+No método _evaluate, os valores de custo e tempo são normalizados (escala 0 a 1) para o cálculo da primeira função objetivo. Sejam C^ e T^ os valores normalizados de custo e tempo, respectivamente.
+
+As funções objetivo a serem minimizadas são:
+
+### Objetivo 1: Índice Ponderado de Preferência (f1)
+Esta função combina custo e tempo baseada no fator de preferência do usuário (α).
+
+```
+f1(X)=α⋅C^+(1−α)⋅T^(x)
+```
+(Nota: No código, este valor é multiplicado por 1000 para escala)
+
+### Objetivo 2: Tempo Total Absoluto (f2)
+
+Mantém-se o tempo real como um objetivo independente para garantir a diversidade na Fronteira de Pareto em relação à duração da viagem.
+
+```
+f2(X)=Ttotal(X)
+```
+
+## 5. Restrições
+O modelo implementado no TripOptimizationProblem possui uma restrição explícita (n_constr=1) tratada pelo solver:
+
+```
+n_constr=1
+```
+
+### Restrição de Orçamento (Budget Constraint)
+A solução não deve exceder o orçamento definido pelo usuário. O código aplica uma penalidade se o custo total for maior que o orçamento.
+
+```
+g1(X)=max(0,Ctotal(X)−B)≤0
+```
+(No código, a violação é multiplicada por 10 para aumentar a penalidade).
+
+## 6. Modelo Matemático Consolidado
+O problema de otimização pode ser resumido como:
+
+Minimizar:
+```
+F(X)=[f1(X),f2(X)]
+```
+
+Sujeito a: 
+```
+g1(X)≤0
+xi,yj∈{0,1}
+```
+
+## Observação adicionais sobre Conectividade
+
+Embora o modelo matemático do solver (NSGA-II) foque em custo, tempo e orçamento, a validade lógica da rota (se os voos e carros formam um caminho contínuo e visitam todos os destinos) é verificada a posteriori no método ``` _validate_itinerary ```.
+
+O solver NSGA-II atua como um mecanismo de seleção (Problema da Mochila) para encontrar combinações de baixo custo e tempo que respeitem o orçamento, e o código posteriormente filtra quais dessas combinações formam itinerários válidos geograficamente.
+
 ### 🔍 Coleta de Dados (Web Scraping)
 - **Scraping de Voos**: Google Flights com delays aleatórios e simulação de comportamento humano
 - **Scraping de Carros**: Kayak com suporte a retirada/devolução em locais diferentes
