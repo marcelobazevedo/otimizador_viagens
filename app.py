@@ -741,7 +741,7 @@ with tab2:
             
             # Processar todas as soluções coletadas
             if all_solutions:
-                # Remover duplicatas e ordenar por custo
+                # Remover duplicatas mantendo a ordem de cada engine
                 unique_solutions = []
                 seen_routes = set()
                 
@@ -755,7 +755,34 @@ with tab2:
                         seen_routes.add(route_key)
                         unique_solutions.append(sol)
                 
-                unique_solutions.sort(key=lambda x: x['custo'])
+                # REORDENAR todas as soluções combinadas baseado no ALPHA
+                # Quando há múltiplas origens, precisamos reordenar o conjunto final
+                if alpha >= 0.7:
+                    # ECONOMIA: Ordenar por custo
+                    unique_solutions.sort(key=lambda x: x['custo'])
+                elif alpha <= 0.3:
+                    # VELOCIDADE: Ordenar por tempo
+                    unique_solutions.sort(key=lambda x: x['tempo'])
+                else:
+                    # BALANCEADO: Ordenar por score
+                    # Calcular ranges para normalização
+                    all_custos = [s['custo'] for s in unique_solutions]
+                    all_tempos = [s['tempo'] for s in unique_solutions]
+                    min_c = min(all_custos)
+                    max_c = max(all_custos)
+                    min_t = min(all_tempos)
+                    max_t = max(all_tempos)
+                    range_c = max_c - min_c if max_c > min_c else 1
+                    range_t = max_t - min_t if max_t > min_t else 1
+                    
+                    # Calcular score e ordenar
+                    for sol in unique_solutions:
+                        custo_norm = (sol['custo'] - min_c) / range_c
+                        tempo_norm = (sol['tempo'] - min_t) / range_t
+                        sol['_final_score'] = alpha * custo_norm + (1-alpha) * tempo_norm
+                    
+                    unique_solutions.sort(key=lambda x: x['_final_score'])
+                
                 solucoes = unique_solutions[:20]  # Limitar a 20 melhores
                 
                 if isinstance(solucoes, str):
@@ -766,7 +793,16 @@ with tab2:
                     else:
                         st.error(f"Erro: {solucoes}")
                 elif solucoes is not None and len(solucoes) > 0:
+                    # Mostrar critério de ordenação baseado no alpha
+                    if alpha >= 0.7:
+                        criterio_msg = f"🏆 **Ordenadas por CUSTO** (alpha={alpha:.2f} - Foco em Economia)"
+                    elif alpha <= 0.3:
+                        criterio_msg = f"⚡ **Ordenadas por TEMPO** (alpha={alpha:.2f} - Foco em Velocidade)"
+                    else:
+                        criterio_msg = f"⚖️ **Ordenadas por EQUILÍBRIO** (alpha={alpha:.2f} - Balanceado)"
+                    
                     st.success(f"🎯 {len(solucoes)} {'Opção' if len(solucoes) == 1 else 'Opções'} de Itinerário Encontrada{'s' if len(solucoes) > 1 else ''}!")
+                    st.info(criterio_msg)
                     
                     # Exibir informação sobre múltiplas opções
                     if len(solucoes) > 1:
@@ -779,9 +815,23 @@ with tab2:
                         horas = int(sol['tempo'] // 60)
                         minutos = int(sol['tempo'] % 60)
                         
+                        # Determinar badge baseado em posição e alpha
+                        if i == 1:
+                            if alpha <= 0.3:
+                                badge = "⚡ MAIS RÁPIDA"
+                            elif alpha >= 0.7:
+                                badge = "💰 MAIS BARATA"
+                            else:
+                                badge = "⭐ MELHOR SCORE"
+                        else:
+                            badge = ""
+                        
                         # Container para cada opção com borda
                         with st.container():
-                            st.markdown(f"### 🔷 Opção {i}")
+                            if badge:
+                                st.markdown(f"### 🔷 Opção {i} {badge}")
+                            else:
+                                st.markdown(f"### 🔷 Opção {i}")
                             
                             # Métricas lado a lado
                             col1, col2, col3 = st.columns(3)

@@ -291,9 +291,8 @@ class TripOptimizerEngine:
             if not within_budget:
                 print(f"⚠️ AVISO: Nenhuma solução encontrada dentro do orçamento de R$ {budget_max:.2f}")
                 print(f"Solução mais barata custa R$ {min(s['custo'] for s in unique_solutions):.2f}")
-                # Usar as 10 soluções mais baratas mesmo que excedam orçamento
-                unique_solutions.sort(key=lambda x: x['custo'])
-                within_budget = unique_solutions[:10]
+                # Retornar None quando não há soluções dentro do orçamento
+                return None
             else:
                 print(f"DEBUG: {len(within_budget)} soluções dentro do orçamento de R$ {budget_max:.2f}")
                 unique_solutions = within_budget
@@ -354,108 +353,71 @@ class TripOptimizerEngine:
                 pattern = tuple(row['tipo'] for _, row in sol['itinerario'].iterrows())
                 solutions_by_pattern[pattern].append(sol)
             
-            # Para cada padrão, garantir DIVERSIDADE de trade-offs
-            # Não apenas ordenar por custo ou tempo, mas mostrar toda a fronteira Pareto
-            diversified_by_pattern = {}
-            
-            for pattern, sols in solutions_by_pattern.items():
-                if len(sols) <= 10:
-                    # Se tem poucas, manter todas
-                    diversified_by_pattern[pattern] = sols
-                else:
-                    # Selecionar soluções DIVERSAS ao longo do trade-off custo vs tempo
-                    
-                    # 1. Ordenar por custo
-                    by_custo = sorted(sols, key=lambda x: x['custo'])
-                    
-                    # 2. Ordenar por tempo
-                    by_tempo = sorted(sols, key=lambda x: x['tempo'])
-                    
-                    # 3. Criar métrica balanceada (normalizada)
-                    min_c = min(s['custo'] for s in sols)
-                    max_c = max(s['custo'] for s in sols)
-                    min_t = min(s['tempo'] for s in sols)
-                    max_t = max(s['tempo'] for s in sols)
-                    
-                    range_c = max_c - min_c if max_c > min_c else 1
-                    range_t = max_t - min_t if max_t > min_t else 1
-                    
-                    # Selecionar soluções representativas
-                    selected = set()
-                    
-                    # A) 3 mais baratas (foco em ECONOMIA)
-                    for sol in by_custo[:3]:
-                        selected.add(id(sol))
-                    
-                    # B) 3 mais rápidas (foco em TEMPO)
-                    for sol in by_tempo[:3]:
-                        selected.add(id(sol))
-                    
-                    # C) Soluções ao longo da fronteira (BALANCEADAS)
-                    # Usar distância Euclidiana no espaço normalizado
-                    for sol in sols:
-                        custo_norm = (sol['custo'] - min_c) / range_c
-                        tempo_norm = (sol['tempo'] - min_t) / range_t
-                        sol['_euclidean'] = (custo_norm**2 + tempo_norm**2)**0.5
-                    
-                    # Pegar soluções distribuídas ao longo da diagonal
-                    by_euclidean = sorted(sols, key=lambda x: x['_euclidean'])
-                    
-                    # Selecionar 10 soluções espaçadas
-                    step = max(1, len(by_euclidean) // 10)
-                    for i in range(0, len(by_euclidean), step):
-                        if len(selected) < 20:  # Limitar a 20 por padrão
-                            selected.add(id(by_euclidean[i]))
-                    
-                    # D) Converter IDs de volta para soluções
-                    diversified_by_pattern[pattern] = [s for s in sols if id(s) in selected]
-                    
-                    # Ordenar usando ALPHA do usuário (prioridade custo vs tempo)
-                    # alpha = 1.0 -> 100% custo (mais barato)
-                    # alpha = 0.0 -> 100% tempo (mais rápido)
-                    # alpha = 0.7 -> 70% custo, 30% tempo
-                    alpha = self.config.get('alpha', 0.5)
-                    diversified_by_pattern[pattern].sort(key=lambda x: alpha * (x['custo']-min_c)/range_c + (1-alpha) * (x['tempo']-min_t)/range_t)
-            
-            print(f"\nDEBUG: Padrões de tipo encontrados: {len(diversified_by_pattern)}")
-            for pattern, sols in sorted(diversified_by_pattern.items(), key=lambda x: min(s['custo'] for s in x[1])):
+            print(f"\nDEBUG: Padrões de tipo encontrados: {len(solutions_by_pattern)}")
+            for pattern, sols in sorted(solutions_by_pattern.items(), key=lambda x: min(s['custo'] for s in x[1])):
                 if sols:
                     custos = [s['custo'] for s in sols]
                     tempos = [s['tempo'] for s in sols]
-                    print(f"  {pattern}: {len(sols)} soluções DIVERSAS")
+                    print(f"  {pattern}: {len(sols)} soluções")
                     print(f"    Custo: R$ {min(custos):.2f} - R$ {max(custos):.2f}")
-                    print(f"    Tempo: {min(tempos)} - {max(tempos)} min")
+                    print(f"    Tempo: {min(tempos):.0f} - {max(tempos):.0f} min")
             
-            # Reorganizar soluções: Intercalar entre padrões
-            balanced_solutions = []
-            patterns_list = list(diversified_by_pattern.keys())
-            pattern_indices = {p: 0 for p in patterns_list}
+            # NOVA ABORDAGEM: Selecionar baseado em TODAS as soluções globalmente
+            # Não processar por padrão, processar tudo junto para respeitar o alpha
+            all_solutions = pareto_front  # Usar todas as soluções do Pareto Front
             
-            # Pegar alternadamente de cada padrão
-            max_solutions = 50
-            round_size = 2  # Quantas soluções pegar de cada padrão por rodada
+            alpha = self.config.get('alpha', 0.5)
             
-            while len(balanced_solutions) < max_solutions:
-                added_this_round = False
+            # Calcular ranges globais
+            if all_solutions:
+                min_c_all = min(s['custo'] for s in all_solutions)
+                max_c_all = max(s['custo'] for s in all_solutions)
+                min_t_all = min(s['tempo'] for s in all_solutions)
+                max_t_all = max(s['tempo'] for s in all_solutions)
                 
-                for pattern in patterns_list:
-                    idx = pattern_indices[pattern]
-                    end_idx = min(idx + round_size, len(diversified_by_pattern[pattern]))
-                    
-                    if idx < len(diversified_by_pattern[pattern]):
-                        balanced_solutions.extend(diversified_by_pattern[pattern][idx:end_idx])
-                        pattern_indices[pattern] = end_idx
-                        added_this_round = True
-                    
-                    if len(balanced_solutions) >= max_solutions:
-                        break
+                range_c_all = max_c_all - min_c_all if max_c_all > min_c_all else 1
+                range_t_all = max_t_all - min_t_all if max_t_all > min_t_all else 1
                 
-                if not added_this_round:
-                    break
+                print(f"\nDEBUG: Ranges globais para seleção (alpha={alpha:.2f}):")
+                print(f"  Custo: R$ {min_c_all:.2f} - R$ {max_c_all:.2f}")
+                print(f"  Tempo: {min_t_all:.0f} - {max_t_all:.0f} min")
+                
+                # Calcular score baseado em alpha para TODAS as soluções
+                for sol in all_solutions:
+                    custo_norm = (sol['custo'] - min_c_all) / range_c_all
+                    tempo_norm = (sol['tempo'] - min_t_all) / range_t_all
+                    sol['_alpha_score'] = alpha * custo_norm + (1-alpha) * tempo_norm
+                
+                # Selecionar soluções baseado no alpha
+                # Pegar mais soluções para garantir diversidade
+                if alpha >= 0.7:
+                    # FOCO EM ECONOMIA: Ordenar por custo
+                    print(f"DEBUG: Modo ECONOMIA (alpha={alpha:.2f}) - Ordenando por CUSTO")
+                    balanced_solutions = sorted(all_solutions, key=lambda x: x['custo'])[:50]
+                
+                elif alpha <= 0.3:
+                    # FOCO EM VELOCIDADE: Ordenar por tempo
+                    print(f"DEBUG: Modo VELOCIDADE (alpha={alpha:.2f}) - Ordenando por TEMPO")
+                    balanced_solutions = sorted(all_solutions, key=lambda x: x['tempo'])[:50]
+                    
+                    # DEBUG: Mostrar as primeiras soluções
+                    print(f"DEBUG: 10 soluções mais RÁPIDAS disponíveis:")
+                    for i, sol in enumerate(balanced_solutions[:10]):
+                        pattern = tuple(row['tipo'] for _, row in sol['itinerario'].iterrows())
+                        print(f"  {i+1}. {str(pattern)[:40]:<40} - Custo: R$ {sol['custo']:>8,.2f} | Tempo: {sol['tempo']:>6.0f}min")
+                
+                else:
+                    # BALANCEADO: Ordenar por score alpha
+                    print(f"DEBUG: Modo BALANCEADO (alpha={alpha:.2f}) - Ordenando por SCORE")
+                    balanced_solutions = sorted(all_solutions, key=lambda x: x['_alpha_score'])[:50]
+                
+                print(f"DEBUG: Selecionadas {len(balanced_solutions)} soluções após aplicar alpha={alpha:.2f}")
+            else:
+                balanced_solutions = []
             
-            print(f"\nDEBUG: Soluções balanceadas com DIVERSIDADE de trade-offs: {len(balanced_solutions)}")
             
-            # ORDENAR TODAS as soluções pelo ALPHA do usuário antes de retornar
+            # ORDENAÇÃO FINAL com alpha
+            # Só recalcular se ainda não tiver sido calculado
             if balanced_solutions:
                 # Calcular ranges globais para normalização
                 all_custos = [s['custo'] for s in balanced_solutions]
@@ -469,20 +431,60 @@ class TripOptimizerEngine:
                 range_c_global = max_c_global - min_c_global if max_c_global > min_c_global else 1
                 range_t_global = max_t_global - min_t_global if max_t_global > min_t_global else 1
                 
-                # Calcular e adicionar score para cada solução
+                # A ordenação já foi feita acima baseada no alpha
+                # Não reordenar aqui
+                
                 alpha = self.config.get('alpha', 0.5)
-                for sol in balanced_solutions:
-                    custo_norm = (sol['custo']-min_c_global)/range_c_global
-                    tempo_norm = (sol['tempo']-min_t_global)/range_t_global
-                    sol['_sort_score'] = alpha * custo_norm + (1-alpha) * tempo_norm
+                print(f"\nDEBUG: Verificação de ordenação (alpha={alpha:.2f}):")
+                print(f"DEBUG: Range de custos: R$ {min_c_global:.2f} - R$ {max_c_global:.2f}")
+                print(f"DEBUG: Range de tempos: {min_t_global:.0f} - {max_t_global:.0f} min")
                 
-                # Ordenar usando alpha
-                balanced_solutions.sort(key=lambda x: x['_sort_score'])
+                if alpha <= 0.3:
+                    # Mostrar que está ordenado por TEMPO
+                    print(f"DEBUG: ORDENADO POR TEMPO (mais rápido primeiro):")
+                    print(f"DEBUG: Primeiras 5 soluções:")
+                    for i, sol in enumerate(balanced_solutions[:5]):
+                        tempo_pct = (sol['tempo']-min_t_global)/(max_t_global-min_t_global)*100 if max_t_global > min_t_global else 0
+                        pattern = tuple(row['tipo'] for _, row in sol['itinerario'].iterrows())
+                        print(f"  {i+1}. {str(pattern)[:30]:<30} Tempo: {sol['tempo']:>6.0f}min ({tempo_pct:5.1f}%) | Custo: R$ {sol['custo']:>8,.2f}")
+                    
+                    print(f"DEBUG: Últimas 3 soluções (mais lentas):")
+                    for i, sol in enumerate(balanced_solutions[-3:], len(balanced_solutions)-2):
+                        tempo_pct = (sol['tempo']-min_t_global)/(max_t_global-min_t_global)*100 if max_t_global > min_t_global else 0
+                        pattern = tuple(row['tipo'] for _, row in sol['itinerario'].iterrows())
+                        print(f"  {i}. {str(pattern)[:30]:<30} Tempo: {sol['tempo']:>6.0f}min ({tempo_pct:5.1f}%) | Custo: R$ {sol['custo']:>8,.2f}")
                 
-                print(f"DEBUG: Soluções ordenadas por ALPHA={alpha:.2f} (1.0=economia, 0.0=velocidade)")
-                print(f"DEBUG: Primeiras 3 soluções após ordenação:")
-                for i, sol in enumerate(balanced_solutions[:3]):
-                    print(f"  {i+1}. R$ {sol['custo']:,.2f} | {sol['tempo']:.0f}min | score={sol['_sort_score']:.4f}")
+                elif alpha >= 0.7:
+                    # Mostrar que está ordenado por CUSTO
+                    print(f"DEBUG: ORDENADO POR CUSTO (mais barato primeiro):")
+                    print(f"DEBUG: Primeiras 5 soluções:")
+                    for i, sol in enumerate(balanced_solutions[:5]):
+                        custo_pct = (sol['custo']-min_c_global)/(max_c_global-min_c_global)*100 if max_c_global > min_c_global else 0
+                        pattern = tuple(row['tipo'] for _, row in sol['itinerario'].iterrows())
+                        print(f"  {i+1}. {str(pattern)[:30]:<30} Custo: R$ {sol['custo']:>8,.2f} ({custo_pct:5.1f}%) | Tempo: {sol['tempo']:>6.0f}min")
+                    
+                    print(f"DEBUG: Últimas 3 soluções (mais caras):")
+                    for i, sol in enumerate(balanced_solutions[-3:], len(balanced_solutions)-2):
+                        custo_pct = (sol['custo']-min_c_global)/(max_c_global-min_c_global)*100 if max_c_global > min_c_global else 0
+                        pattern = tuple(row['tipo'] for _, row in sol['itinerario'].iterrows())
+                        print(f"  {i}. {str(pattern)[:30]:<30} Custo: R$ {sol['custo']:>8,.2f} ({custo_pct:5.1f}%) | Tempo: {sol['tempo']:>6.0f}min")
+                
+                else:
+                    # BALANCEADO
+                    print(f"DEBUG: ORDENADO POR SCORE BALANCEADO:")
+                    print(f"DEBUG: Primeiras 5 soluções:")
+                    for i, sol in enumerate(balanced_solutions[:5]):
+                        custo_pct = (sol['custo']-min_c_global)/(max_c_global-min_c_global)*100 if max_c_global > min_c_global else 0
+                        tempo_pct = (sol['tempo']-min_t_global)/(max_t_global-min_t_global)*100 if max_t_global > min_t_global else 0
+                        pattern = tuple(row['tipo'] for _, row in sol['itinerario'].iterrows())
+                        print(f"  {i+1}. {str(pattern)[:30]:<30} R$ {sol['custo']:>8,.2f} ({custo_pct:5.1f}%) | {sol['tempo']:>6.0f}min ({tempo_pct:5.1f}%)")
+                    
+                    print(f"DEBUG: Últimas 3 soluções:")
+                    for i, sol in enumerate(balanced_solutions[-3:], len(balanced_solutions)-2):
+                        custo_pct = (sol['custo']-min_c_global)/(max_c_global-min_c_global)*100 if max_c_global > min_c_global else 0
+                        tempo_pct = (sol['tempo']-min_t_global)/(max_t_global-min_t_global)*100 if max_t_global > min_t_global else 0
+                        pattern = tuple(row['tipo'] for _, row in sol['itinerario'].iterrows())
+                        print(f"  {i}. {str(pattern)[:30]:<30} R$ {sol['custo']:>8,.2f} ({custo_pct:5.1f}%) | {sol['tempo']:>6.0f}min ({tempo_pct:5.1f}%)")
             
             final_solutions = balanced_solutions[:50] if balanced_solutions else None
             print(f"DEBUG: Retornando {len(final_solutions) if final_solutions else 0} soluções")
